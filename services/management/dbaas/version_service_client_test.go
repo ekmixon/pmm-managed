@@ -18,10 +18,15 @@ package dbaas
 
 import (
 	"context"
+	"encoding/json"
+	"log"
+	"net"
+	"net/http"
+	"strings"
 	"testing"
 
+	goversion "github.com/hashicorp/go-version"
 	"github.com/stretchr/testify/assert"
-
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,5 +58,99 @@ func TestVersionServiceClient(t *testing.T) {
 				assert.NotEmpty(t, v.Matrix.Backup)
 			}
 		})
+	}
+}
+
+type fakeLatestVersionServer struct {
+	response   *VersionServiceResponse
+	components []string
+}
+
+func (f fakeLatestVersionServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	encoder := json.NewEncoder(w)
+	var response *VersionServiceResponse
+	var certainVersionRequested bool
+	var component string
+	for _, c := range f.components {
+		if strings.Contains(r.URL.Path, c) {
+			component = c
+			certainVersionRequested = strings.Contains(r.URL.Path, component+"/")
+			break
+		}
+	}
+	if certainVersionRequested {
+		segments := strings.Split(r.URL.Path, "/")
+		version := segments[len(segments)-2]
+		var dbVersion string
+		// handle product/version/applyversion
+		if _, err := goversion.NewVersion(version); err == nil {
+			dbVersion = segments[len(segments)-1]
+		} else {
+			version = segments[len(segments)-1]
+		}
+		for _, v := range f.response.Versions {
+			if v.Operator == version && v.Product == component {
+				if dbVersion != "" {
+					var database map[string]componentVersion
+					switch component {
+					case pxcOperator:
+						database = v.Matrix.Pxc
+					case psmdbOperator:
+						database = v.Matrix.Mongod
+					default:
+						panic(component + " not supported")
+					}
+					if _, ok := database[dbVersion]; !ok {
+						response = nil
+						break
+					}
+				}
+				response = &VersionServiceResponse{
+					Versions: []struct {
+						Product  string `json:"product"`
+						Operator string `json:"operator"`
+						Matrix   matrix `json:"matrix"`
+					}{v},
+				}
+				break
+			}
+		}
+	} else if component != "" {
+		response = &VersionServiceResponse{}
+		for _, v := range f.response.Versions {
+			if v.Product == component {
+				response.Versions = append(response.Versions, v)
+			}
+		}
+	} else {
+		panic("path " + r.URL.Path + " not expected")
+	}
+	err := encoder.Encode(response)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func newFakeVersionService(response *VersionServiceResponse, port string, components ...string) (versionService, func(*testing.T)) {
+	var httpServer *http.Server
+	waitForListener := make(chan struct{})
+	server := fakeLatestVersionServer{
+		response:   response,
+		components: components,
+	}
+	fakeHostAndPort := "localhost:" + port
+	go func() {
+		httpServer = &http.Server{Addr: fakeHostAndPort, Handler: server}
+		listener, err := net.Listen("tcp", fakeHostAndPort)
+		if err != nil {
+			log.Fatal(err)
+		}
+		close(waitForListener)
+		_ = httpServer.Serve(listener)
+	}()
+	<-waitForListener
+
+	return NewVersionServiceClient("http://" + fakeHostAndPort + "/versions/v1"), func(t *testing.T) {
+		assert.NoError(t, httpServer.Shutdown(context.TODO()))
 	}
 }

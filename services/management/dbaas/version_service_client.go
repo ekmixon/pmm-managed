@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	goversion "github.com/hashicorp/go-version"
+	"github.com/pkg/errors"
 	prom "github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
@@ -45,14 +47,16 @@ type componentVersion struct {
 }
 
 type matrix struct {
-	Mongod       map[string]componentVersion `json:"mongod"`
-	Pxc          map[string]componentVersion `json:"pxc"`
-	Pmm          map[string]componentVersion `json:"pmm"`
-	Proxysql     map[string]componentVersion `json:"proxysql"`
-	Haproxy      map[string]componentVersion `json:"haproxy"`
-	Backup       map[string]componentVersion `json:"backup"`
-	Operator     map[string]componentVersion `json:"operator"`
-	LogCollector map[string]componentVersion `json:"logCollector"`
+	Mongod        map[string]componentVersion `json:"mongod"`
+	Pxc           map[string]componentVersion `json:"pxc"`
+	Pmm           map[string]componentVersion `json:"pmm"`
+	Proxysql      map[string]componentVersion `json:"proxysql"`
+	Haproxy       map[string]componentVersion `json:"haproxy"`
+	Backup        map[string]componentVersion `json:"backup"`
+	Operator      map[string]componentVersion `json:"operator"`
+	PXCOperator   map[string]componentVersion `json:"pxcOperator"`
+	PSMDBOperator map[string]componentVersion `json:"psmdbOperator"`
+	LogCollector  map[string]componentVersion `json:"logCollector"`
 }
 
 // VersionServiceResponse represents response from version service API.
@@ -146,3 +150,98 @@ func (c *VersionServiceClient) Matrix(ctx context.Context, params componentsPara
 
 	return &vsResponse, nil
 }
+
+// IsDatabaseVersionSupportedByOperator returns false and err when request to version service fails. Otherwise returns boolen telling
+// if given database version is supported by given operator version, error is nil in that case.
+func (c *VersionServiceClient) IsDatabaseVersionSupportedByOperator(ctx context.Context, operatorType, operatorVersion, databaseVersion string) (bool, error) {
+	m, err := c.Matrix(ctx, componentsParams{
+		operator:        operatorType,
+		operatorVersion: operatorVersion,
+		dbVersion:       databaseVersion,
+	})
+	if err != nil {
+		return false, err
+	}
+	return len(m.Versions) != 0, nil
+}
+
+// IsOperatorVersionSupported returns true and nil if given operator version is supported in given PMM version.
+// It returns false and error when fetching or parsing fails. False and nil when no error is encountered but
+// version service does not have any matching versions.
+func (c *VersionServiceClient) IsOperatorVersionSupported(ctx context.Context, operatorType string, pmmVersion string, operatorVersion string) (bool, error) {
+	pmm, err := goversion.NewVersion(pmmVersion)
+	if err != nil {
+		return false, err
+	}
+	resp, err := c.Matrix(ctx, componentsParams{operator: "pmm-server", operatorVersion: pmm.Core().String()})
+	if err != nil {
+		return false, err
+	}
+	if len(resp.Versions) == 0 {
+		return false, nil
+	}
+	var operator map[string]componentVersion
+	switch operatorType {
+	case pxcOperator:
+		operator = resp.Versions[0].Matrix.PXCOperator
+	case psmdbOperator:
+		operator = resp.Versions[0].Matrix.PSMDBOperator
+	default:
+		return false, errors.Errorf("%q is an unknown operator type", operatorType)
+	}
+
+	for version := range operator {
+		if version == operatorVersion {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// TODO THIS IS JUST COPY PASTED CODE SO I DON'T HAVE TO REBASE EVERYTIME THE ORIGIN OF THIS CODE CHANGES -> IT'S IN REVEIW
+// --------------------
+var errNoVersionsFound error = errors.New("no version found")
+
+func getLatest(m map[string]componentVersion) (*goversion.Version, error) {
+	if len(m) == 0 {
+		return nil, errNoVersionsFound
+	}
+	latest := goversion.Must(goversion.NewVersion("v0.0.0"))
+	for version := range m {
+		parsedVersion, err := goversion.NewVersion(version)
+		if err != nil {
+			return nil, err
+		}
+		if parsedVersion.GreaterThan(latest) {
+			latest = parsedVersion
+		}
+	}
+	return latest, nil
+}
+
+// GetLatestOperatorVersion return latest PXC and PSMDB operators for given PMM version.
+func (c *VersionServiceClient) GetLatestOperatorVersion(ctx context.Context, pmmVersion string) (*goversion.Version, *goversion.Version, error) {
+	if pmmVersion == "" {
+		return nil, nil, errors.New("given PMM version is empty")
+	}
+	params := componentsParams{
+		operator:        "pmm-server",
+		operatorVersion: pmmVersion,
+	}
+	resp, err := c.Matrix(ctx, params)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(resp.Versions) != 1 {
+		return nil, nil, nil // no deps for the PMM version passed to c.Matrix
+	}
+	pmmVersionDeps := resp.Versions[0]
+	latestPSMDBOperator, err := getLatest(pmmVersionDeps.Matrix.PSMDBOperator)
+	if err != nil {
+		return nil, nil, err
+	}
+	latestPXCOperator, err := getLatest(pmmVersionDeps.Matrix.PXCOperator)
+	return latestPXCOperator, latestPSMDBOperator, err
+}
+
+// -------------------- TODO REMOVE THIS SECTION
