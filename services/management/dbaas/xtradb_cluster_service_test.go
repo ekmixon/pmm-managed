@@ -98,14 +98,14 @@ func TestXtraDBClusterService(t *testing.T) {
 	ks := NewKubernetesServer(db, dbaasClient, NewVersionServiceClient(versionServiceURL))
 	dbaasClient.On("CheckKubernetesClusterConnection", ctx, pxcKubeconfigTest).Return(&controllerv1beta1.CheckKubernetesClusterConnectionResponse{
 		Operators: &controllerv1beta1.Operators{
-			Xtradb: &controllerv1beta1.Operator{Status: controllerv1beta1.OperatorsStatus_OPERATORS_STATUS_NOT_INSTALLED},
-			Psmdb:  &controllerv1beta1.Operator{Status: controllerv1beta1.OperatorsStatus_OPERATORS_STATUS_OK},
+			XtradbOperatorVersion: "",
+			PsmdbOperatorVersion:  onePointEight,
 		},
 		Status: controllerv1beta1.KubernetesClusterStatus_KUBERNETES_CLUSTER_STATUS_OK,
 	}, nil)
 
-	// dbaasClient.On("InstallXtraDBOperator", mock.Anything, mock.Anything).Return(&controllerv1beta1.InstallXtraDBOperatorResponse{}, nil)
-	// dbaasClient.On("InstallPSMDBOperator", mock.Anything, mock.Anything).Return(&controllerv1beta1.InstallPSMDBOperatorResponse{}, nil)
+	dbaasClient.On("InstallXtraDBOperator", mock.Anything, mock.Anything).Return(&controllerv1beta1.InstallXtraDBOperatorResponse{}, nil)
+	dbaasClient.On("InstallPSMDBOperator", mock.Anything, mock.Anything).Return(&controllerv1beta1.InstallPSMDBOperatorResponse{}, nil)
 
 	registerKubernetesClusterResponse, err := ks.RegisterKubernetesCluster(ctx, &dbaasv1beta1.RegisterKubernetesClusterRequest{
 		KubernetesClusterName: pxcKubernetesClusterNameTest,

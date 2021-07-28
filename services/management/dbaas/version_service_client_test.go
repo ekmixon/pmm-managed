@@ -38,11 +38,11 @@ func TestVersionServiceClient(t *testing.T) {
 		params componentsParams
 	}{
 		{params: componentsParams{product: psmdbOperator}},
-		{params: componentsParams{product: psmdbOperator, productVersion: "1.6.0"}},
-		{params: componentsParams{product: psmdbOperator, productVersion: "1.7.0", dbVersion: "4.2.8-8"}},
+		{params: componentsParams{product: psmdbOperator, productVersion: onePointSix}},
+		{params: componentsParams{product: psmdbOperator, productVersion: onePointSeven, dbVersion: "4.2.8-8"}},
 		{params: componentsParams{product: pxcOperator}},
-		{params: componentsParams{product: pxcOperator, productVersion: "1.7.0"}},
-		{params: componentsParams{product: pxcOperator, productVersion: "1.7.0", dbVersion: "8.0.20-11.2"}},
+		{params: componentsParams{product: pxcOperator, productVersion: onePointSeven}},
+		{params: componentsParams{product: pxcOperator, productVersion: onePointSeven, dbVersion: "8.0.20-11.2"}},
 	} {
 		t.Run("NotEmptyMatrix", func(t *testing.T) {
 			response, err := c.Matrix(context.TODO(), tt.params)
@@ -132,7 +132,12 @@ func (f fakeLatestVersionServer) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// newFakeVersionService creates new fake version service on given port.
+// It returns values based on given response but only for specified components.
 func newFakeVersionService(response *VersionServiceResponse, port string, components ...string) (versionService, func(*testing.T)) {
+	if len(components) == 0 {
+		panic("failed to create fake version service, at least one component has to be given, none received")
+	}
 	var httpServer *http.Server
 	waitForListener := make(chan struct{})
 	server := fakeLatestVersionServer{
@@ -179,27 +184,27 @@ func TestLatestVersionGetting(t *testing.T) {
 				Product:        "pmm-server",
 				Matrix: matrix{
 					PXCOperator: map[string]componentVersion{
-						"1.8.0": {},
-						"1.7.0": {},
+						onePointEight: {},
+						onePointSeven: {},
 					},
 					PSMDBOperator: map[string]componentVersion{
-						"1.9.0": {},
-						"1.8.0": {},
-						"1.7.0": {},
+						onePointNine: {},
+						onePointEight: {},
+						onePointSeven: {},
 					},
 				},
 			},
 		},
 	}
-	c, cleanup := newFakeVersionService(response, "5897")
+	c, cleanup := newFakeVersionService(response, "5897", "pmm-server")
 	t.Cleanup(func() { cleanup(t) })
 	t.Run("Get latest", func(t *testing.T) {
 		t.Parallel()
 		ctx := context.Background()
 		pxcOperatorVersion, psmdbOperatorVersion, err := c.GetLatestOperatorVersion(ctx, twoPointEighteen)
 		require.NoError(t, err, "request to fakeserver for latest version should not fail")
-		assert.Equal(t, "1.8.0", pxcOperatorVersion.String())
-		assert.Equal(t, "1.9.0", psmdbOperatorVersion.String())
+		assert.Equal(t, onePointEight, pxcOperatorVersion.String())
+		assert.Equal(t, onePointNine, psmdbOperatorVersion.String())
 	})
 	t.Run("Get latest", func(t *testing.T) {
 		t.Parallel()

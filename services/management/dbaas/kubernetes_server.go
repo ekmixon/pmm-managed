@@ -61,24 +61,22 @@ func (k *kubernetesServer) Enabled() bool {
 	return settings.DBaaS.Enabled
 }
 
-// convertOperatorStatus exists mainly to assign appropriate status when installed operator is unsupported.
+// getOperatorStatus exists mainly to assign appropriate status when installed operator is unsupported.
 // dbaas-controller does not have a clue what's supported, so we have to do it here.
-func (k kubernetesServer) convertOperatorStatus(ctx context.Context, inputOperator *dbaascontrollerv1beta1.Operator, outputOperator *dbaasv1beta1.Operator) error {
-	switch inputOperator.Status {
-	case dbaascontrollerv1beta1.OperatorsStatus_OPERATORS_STATUS_NOT_INSTALLED:
-		outputOperator.Status = dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_NOT_INSTALLED
-	case dbaascontrollerv1beta1.OperatorsStatus_OPERATORS_STATUS_OK:
-		supported, err := k.versionService.IsOperatorVersionSupported(ctx, pxcOperator, pmmversion.PMMVersion, inputOperator.Version)
-		if err != nil {
-			return err
-		}
-		if supported {
-			outputOperator.Status = dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_OK
-		} else {
-			outputOperator.Status = dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_UNSUPPORTED
-		}
+func (k kubernetesServer) getOperatorStatus(ctx context.Context, operatorType string, operatorVersion string) (dbaasv1beta1.OperatorsStatus, error) {
+	if operatorVersion == "" {
+		return dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_NOT_INSTALLED, nil
 	}
-	return nil
+
+	supported, err := k.versionService.IsOperatorVersionSupported(ctx, operatorType, pmmversion.PMMVersion, operatorVersion)
+	if err != nil {
+		return dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_INVALID, err
+	}
+	if supported {
+		return dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_OK, nil
+	}
+
+	return dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_UNSUPPORTED, nil
 }
 
 // ListKubernetesClusters returns a list of all registered Kubernetes clusters.
@@ -115,14 +113,17 @@ func (k kubernetesServer) ListKubernetesClusters(ctx context.Context, _ *dbaasv1
 				return
 			}
 
-			if err := k.convertOperatorStatus(ctx, resp.Operators.Xtradb, clusters[i].Operators.Xtradb); err != nil {
+			clusters[i].Operators.Xtradb.Status, err = k.getOperatorStatus(ctx, pxcOperator, resp.Operators.XtradbOperatorVersion)
+			if err != nil {
 				k.l.Errorf("failed to convert dbaas-controller operator status to PMM status: %v", err)
 			}
-			if err := k.convertOperatorStatus(ctx, resp.Operators.Psmdb, clusters[i].Operators.Psmdb); err != nil {
+			clusters[i].Operators.Psmdb.Status, err = k.getOperatorStatus(ctx, psmdbOperator, resp.Operators.PsmdbOperatorVersion)
+			if err != nil {
 				k.l.Errorf("failed to convert dbaas-controller operator status to PMM status: %v", err)
 			}
-			clusters[i].Operators.Xtradb.Version = resp.Operators.Xtradb.Version
-			clusters[i].Operators.Psmdb.Version = resp.Operators.Psmdb.Version
+
+			clusters[i].Operators.Xtradb.Version = resp.Operators.XtradbOperatorVersion
+			clusters[i].Operators.Psmdb.Version = resp.Operators.PsmdbOperatorVersion
 		}()
 	}
 	wg.Wait()
@@ -137,7 +138,7 @@ func (k kubernetesServer) RegisterKubernetesCluster(ctx context.Context, req *db
 			return e
 		}
 
-		_, err := models.CreateKubernetesCluster(k.db.Querier, &models.CreateKubernetesClusterParams{
+		_, err := models.CreateKubernetesCluster(t.Querier, &models.CreateKubernetesClusterParams{
 			KubernetesClusterName: req.KubernetesClusterName,
 			KubeConfig:            req.KubeAuth.Kubeconfig,
 		})
@@ -186,13 +187,13 @@ func (k kubernetesServer) RegisterKubernetesCluster(ctx context.Context, req *db
 // UnregisterKubernetesCluster removes a registered Kubernetes cluster from PMM.
 func (k kubernetesServer) UnregisterKubernetesCluster(ctx context.Context, req *dbaasv1beta1.UnregisterKubernetesClusterRequest) (*dbaasv1beta1.UnregisterKubernetesClusterResponse, error) {
 	err := k.db.InTransaction(func(t *reform.TX) error {
-		kubernetesCluster, err := models.FindKubernetesClusterByName(k.db.Querier, req.KubernetesClusterName)
+		kubernetesCluster, err := models.FindKubernetesClusterByName(t.Querier, req.KubernetesClusterName)
 		if err != nil {
 			return err
 		}
 
 		if req.Force {
-			return models.RemoveKubernetesCluster(k.db.Querier, req.KubernetesClusterName)
+			return models.RemoveKubernetesCluster(t.Querier, req.KubernetesClusterName)
 		}
 
 		xtraDBClusters, err := k.dbaasClient.ListXtraDBClusters(ctx,
@@ -223,7 +224,7 @@ func (k kubernetesServer) UnregisterKubernetesCluster(ctx context.Context, req *
 		case len(psmdbClusters.Clusters) > 0:
 			return status.Errorf(codes.FailedPrecondition, "Kubernetes cluster %s has PSMDB clusters", req.KubernetesClusterName)
 		}
-		return models.RemoveKubernetesCluster(k.db.Querier, req.KubernetesClusterName)
+		return models.RemoveKubernetesCluster(t.Querier, req.KubernetesClusterName)
 	})
 	if err != nil {
 		return nil, err
