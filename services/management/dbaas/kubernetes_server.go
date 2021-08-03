@@ -45,7 +45,7 @@ type kubernetesServer struct {
 	db             *reform.DB
 	dbaasClient    dbaasClient
 	versionService versionService
-  grafanaClient  grafanaClient
+	grafanaClient  grafanaClient
 }
 
 // NewKubernetesServer creates Kubernetes Server.
@@ -56,7 +56,7 @@ func NewKubernetesServer(db *reform.DB, dbaasClient dbaasClient, grafanaClient g
 		db:             db,
 		dbaasClient:    dbaasClient,
 		grafanaClient:  grafanaClient,
-    versionService: versionService,
+		versionService: versionService,
 	}
 }
 
@@ -187,9 +187,9 @@ func (k kubernetesServer) RegisterKubernetesCluster(ctx context.Context, req *db
 		})
 		if err != nil {
 			return nil, err
-    }
-  }
-  
+		}
+	}
+
 	settings, err := models.GetSettings(k.db.Querier)
 	if err != nil {
 		return nil, err

@@ -209,7 +209,7 @@ func getLatest(m map[string]componentVersion) (*goversion.Version, error) {
 	if len(m) == 0 {
 		return nil, errNoVersionsFound
 	}
-	latest := goversion.Must(goversion.NewVersion("v0.0.0"))
+	latest := goversion.Must(goversion.NewVersion("0.0.0"))
 	for version := range m {
 		parsedVersion, err := goversion.NewVersion(version)
 		if err != nil {
@@ -245,4 +245,73 @@ func (c *VersionServiceClient) GetLatestOperatorVersion(ctx context.Context, pmm
 	}
 	latestPXCOperator, err := getLatest(pmmVersionDeps.Matrix.PXCOperator)
 	return latestPXCOperator, latestPSMDBOperator, err
+}
+
+// GetNextOperatorVersion returns operator version that is direct successor of currently installed one.
+// It returns nil if update is not available or error occured. It does not take PMM version into consideration.
+// We need to upgrade to current + 1 version for upgrade to be successful. So even if dbaas-controller does not support the
+// operator, we need to upgrade to it on our way to supported one.
+func (c *VersionServiceClient) GetNextOperatorVersion(ctx context.Context, operatorType, installedVersion string) (nextOperatorVersion *goversion.Version, err error) {
+	if installedVersion == "" {
+		return
+	}
+	// Get all operator versions
+	params := componentsParams{
+		product: operatorType,
+	}
+	matrix, err := c.Matrix(ctx, params)
+	if err != nil {
+		return
+	}
+	if len(matrix.Versions) == 0 {
+		return
+	}
+
+	// Find next versions if installed.
+	if installedVersion != "" {
+		nextOperatorVersion, err = getNext(matrix.Versions, installedVersion)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
+func getNext(versions []struct {
+	Product        string `json:"product"`
+	ProductVersion string `json:"operator"`
+	Matrix         matrix `json:"matrix"`
+}, installedVersion string) (*goversion.Version, error) {
+	if len(versions) == 0 {
+		return nil, errNoVersionsFound
+	}
+	// Get versions greater than currently installed one.
+	var greaterThanCurrent []*goversion.Version
+	installed, err := goversion.NewVersion(installedVersion)
+	if err != nil {
+		return nil, err
+	}
+	for _, version := range versions {
+		v, err := goversion.NewVersion(version.ProductVersion)
+		if err != nil {
+			return nil, err
+		}
+		if v.GreaterThan(installed) {
+			greaterThanCurrent = append(greaterThanCurrent, v)
+		}
+	}
+
+	if len(greaterThanCurrent) == 0 {
+		// No update available.
+		return nil, nil
+	}
+
+	// Find lowest version.
+	lowestVersion := greaterThanCurrent[0]
+	for i := 1; i < len(greaterThanCurrent); i++ {
+		if greaterThanCurrent[i].LessThan(lowestVersion) {
+			lowestVersion = greaterThanCurrent[i]
+		}
+	}
+	return lowestVersion, nil
 }

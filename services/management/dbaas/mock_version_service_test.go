@@ -46,6 +46,29 @@ func (_m *mockVersionService) GetLatestOperatorVersion(ctx context.Context, pmmV
 	return r0, r1, r2
 }
 
+// GetNextOperatorVersion provides a mock function with given fields: ctx, operatorType, installedVersion
+func (_m *mockVersionService) GetNextOperatorVersion(ctx context.Context, operatorType string, installedVersion string) (*version.Version, error) {
+	ret := _m.Called(ctx, operatorType, installedVersion)
+
+	var r0 *version.Version
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) *version.Version); ok {
+		r0 = rf(ctx, operatorType, installedVersion)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*version.Version)
+		}
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(context.Context, string, string) error); ok {
+		r1 = rf(ctx, operatorType, installedVersion)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
 // IsDatabaseVersionSupportedByOperator provides a mock function with given fields: ctx, operatorType, operatorVersion, databaseVersion
 func (_m *mockVersionService) IsDatabaseVersionSupportedByOperator(ctx context.Context, operatorType string, operatorVersion string, databaseVersion string) (bool, error) {
 	ret := _m.Called(ctx, operatorType, operatorVersion, databaseVersion)
