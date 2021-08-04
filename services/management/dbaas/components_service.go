@@ -254,7 +254,7 @@ func (c componentsService) CheckForOperatorUpdate(ctx context.Context, req *dbaa
 	// Some of the requests to kuberenetes clusters for getting operators versions should be done.
 	// Go through them and decide what operator needs update.
 	for operatorsVersion := range responseCh {
-		// Get next operators version, don't take compatiblity into account, we need to go through all versions.
+		// Get next operators version, don't take compatibility into account, we need to go through all versions.
 		nextPXCOperatorVersion, err := c.versionServiceClient.GetNextOperatorVersion(ctx, pxcOperator, operatorsVersion.pxcOperatorVersion)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
@@ -273,10 +273,18 @@ func (c componentsService) CheckForOperatorUpdate(ctx context.Context, req *dbaa
 			resp.ClusterToComponents[operatorsVersion.kuberentesClusterName].ComponentToUpdateInformation[pxcOperator] = &dbaasv1beta1.ComponentUpdateInformation{
 				AvailableVersion: nextPXCOperatorVersion.String(),
 			}
+		} else {
+			resp.ClusterToComponents[operatorsVersion.kuberentesClusterName].ComponentToUpdateInformation[pxcOperator] = &dbaasv1beta1.ComponentUpdateInformation{
+				AvailableVersion: "",
+			}
 		}
 		if latestPSMDBOperatorVersion != nil && nextPSMDBOperatorVersion != nil && nextPSMDBOperatorVersion.LessThanOrEqual(latestPSMDBOperatorVersion) {
 			resp.ClusterToComponents[operatorsVersion.kuberentesClusterName].ComponentToUpdateInformation[psmdbOperator] = &dbaasv1beta1.ComponentUpdateInformation{
 				AvailableVersion: nextPSMDBOperatorVersion.String(),
+			}
+		} else {
+			resp.ClusterToComponents[operatorsVersion.kuberentesClusterName].ComponentToUpdateInformation[psmdbOperator] = &dbaasv1beta1.ComponentUpdateInformation{
+				AvailableVersion: "",
 			}
 		}
 	}
