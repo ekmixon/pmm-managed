@@ -198,7 +198,7 @@ type installedComponentsVersion struct {
 	psmdbOperatorVersion  string
 }
 
-func (c componentsService) getInstalledOperatorsVersion(ctx context.Context, wg *sync.WaitGroup, responseCh chan installedComponentsVersion, kuberentesCluster *models.KubernetesCluster) {
+func (c componentsService) installedOperatorsVersion(ctx context.Context, wg *sync.WaitGroup, responseCh chan installedComponentsVersion, kuberentesCluster *models.KubernetesCluster) {
 	defer wg.Done()
 	resp, err := c.dbaasClient.CheckKubernetesClusterConnection(ctx, kuberentesCluster.KubeConfig)
 	if err != nil {
@@ -232,7 +232,7 @@ func (c componentsService) CheckForOperatorUpdate(ctx context.Context, req *dbaa
 		wg.Add(len(clusters))
 		for _, cluster := range clusters {
 			k8sCluster := cluster
-			go c.getInstalledOperatorsVersion(ctx, wg, responseCh, k8sCluster)
+			go c.installedOperatorsVersion(ctx, wg, responseCh, k8sCluster)
 		}
 		wg.Wait()
 		close(responseCh)
@@ -246,7 +246,7 @@ func (c componentsService) CheckForOperatorUpdate(ctx context.Context, req *dbaa
 		ClusterToComponents: make(map[string]*dbaasv1beta1.ComponentsUpdateInformation),
 	}
 
-	latestPXCOperatorVersion, latestPSMDBOperatorVersion, err := c.versionServiceClient.GetLatestOperatorVersion(ctx, pmmVersion.Core().String())
+	latestPXCOperatorVersion, latestPSMDBOperatorVersion, err := c.versionServiceClient.LatestOperatorVersion(ctx, pmmVersion.Core().String())
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -255,11 +255,11 @@ func (c componentsService) CheckForOperatorUpdate(ctx context.Context, req *dbaa
 	// Go through them and decide what operator needs update.
 	for operatorsVersion := range responseCh {
 		// Get next operators version, don't take compatibility into account, we need to go through all versions.
-		nextPXCOperatorVersion, err := c.versionServiceClient.GetNextOperatorVersion(ctx, pxcOperator, operatorsVersion.pxcOperatorVersion)
+		nextPXCOperatorVersion, err := c.versionServiceClient.NextOperatorVersion(ctx, pxcOperator, operatorsVersion.pxcOperatorVersion)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
-		nextPSMDBOperatorVersion, err := c.versionServiceClient.GetNextOperatorVersion(ctx, psmdbOperator, operatorsVersion.psmdbOperatorVersion)
+		nextPSMDBOperatorVersion, err := c.versionServiceClient.NextOperatorVersion(ctx, psmdbOperator, operatorsVersion.psmdbOperatorVersion)
 		if err != nil {
 			return nil, status.Error(codes.Internal, err.Error())
 		}
@@ -435,7 +435,7 @@ func (c componentsService) InstallOperator(ctx context.Context, req *dbaasv1beta
 		}
 		component = kubernetesCluster.Mongod
 	default:
-		return &dbaasv1beta1.InstallOperatorResponse{Status: dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_NOT_INSTALLED},
+		return &dbaasv1beta1.InstallOperatorResponse{Status: dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_INVALID},
 			errors.Errorf("%q is not supported operator", req.OperatorType)
 	}
 
@@ -443,19 +443,16 @@ func (c componentsService) InstallOperator(ctx context.Context, req *dbaasv1beta
 		// Default version of database could be unsupported be a new operator version.
 		supported, err := c.versionServiceClient.IsDatabaseVersionSupportedByOperator(ctx, req.OperatorType, req.Version, component.DefaultVersion)
 		if err != nil {
-			return &dbaasv1beta1.InstallOperatorResponse{Status: dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_NOT_INSTALLED},
-				status.Errorf(codes.Internal, "failed to check if default database version is supported: %v", err)
+			return nil, status.Errorf(codes.Internal, "failed to check if default database version is supported by the operator version: %v", err)
 		}
 		if !supported {
-			return &dbaasv1beta1.InstallOperatorResponse{Status: dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_NOT_INSTALLED},
-				status.Errorf(codes.Internal, "default database version %s is unsupported by the operator version %s, please change default version.", component.DefaultVersion, req.Version)
+			return nil, status.Errorf(codes.Internal, "default database version %s is unsupported by the operator version %s, please change default version.", component.DefaultVersion, req.Version)
 		}
 	}
 
 	// Install operator.
 	if err := installFunc(); err != nil {
-		return &dbaasv1beta1.InstallOperatorResponse{Status: dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_NOT_INSTALLED},
-			status.Errorf(codes.Internal, "failed to install operator: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to install operator: %v", err)
 	}
 
 	return &dbaasv1beta1.InstallOperatorResponse{Status: dbaasv1beta1.OperatorsStatus_OPERATORS_STATUS_OK}, nil
