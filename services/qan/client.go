@@ -514,4 +514,6 @@ func fillPostgreSQL(mb *qanpb.MetricsBucket, bp *agentpb.MetricsBucket_PostgreSQ
 	mb.ApplicationName = bp.ApplicationName
 	mb.Planid = bp.Planid
 	mb.QueryPlan = bp.QueryPlan
+
+	mb.CmdType = bp.CmdType
 }

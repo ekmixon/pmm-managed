@@ -141,6 +141,7 @@ func (s XtraDBClusterService) ListXtraDBClusters(ctx context.Context, req *dbaas
 			cluster.AvailableImage = nextVersionImage
 			cluster.InstalledImage = c.Params.Pxc.Image
 		}
+		s.l.Infof("cluster %v is in state %v", cluster.Name, cluster.State)
 
 		clusters[i] = &cluster
 	}
