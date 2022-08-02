@@ -45,20 +45,27 @@ def install_go():
         "chmod +x /usr/local/bin/gimme"
     ])
 
-    go_version = subprocess.check_output("gimme -r " + GO_VERSION, shell=True).strip()
+    go_version = subprocess.check_output(
+        f"gimme -r {GO_VERSION}", shell=True
+    ).strip()
 
-    run_commands([
-        "gimme " + go_version,
-        "rm -fr /usr/local/go",
-        "mv -f /root/.gimme/versions/go{go_version}.linux.amd64 /usr/local/go".format(go_version=go_version),
-        "update-alternatives --install '/usr/bin/go' 'go' '/usr/local/go/bin/go' 0",
-        "update-alternatives --set go /usr/local/go/bin/go",
-        "update-alternatives --install '/usr/bin/gofmt' 'gofmt' '/usr/local/go/bin/gofmt' 0",
-        "update-alternatives --set gofmt /usr/local/go/bin/gofmt",
-        "mkdir -p /root/go/bin",
-        "go version",
-        "go env"
-    ])
+
+    run_commands(
+        [
+            f"gimme {go_version}",
+            "rm -fr /usr/local/go",
+            "mv -f /root/.gimme/versions/go{go_version}.linux.amd64 /usr/local/go".format(
+                go_version=go_version
+            ),
+            "update-alternatives --install '/usr/bin/go' 'go' '/usr/local/go/bin/go' 0",
+            "update-alternatives --set go /usr/local/go/bin/go",
+            "update-alternatives --install '/usr/bin/gofmt' 'gofmt' '/usr/local/go/bin/gofmt' 0",
+            "update-alternatives --set gofmt /usr/local/go/bin/gofmt",
+            "mkdir -p /root/go/bin",
+            "go version",
+            "go env",
+        ]
+    )
 
 def make_install():
     """Runs make install."""
